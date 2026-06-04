@@ -1,6 +1,27 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Upload, Camera, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+
+const MAX_FILE_SIZE_MB = 20
+const MAX_WIDTH = 1200
+const JPEG_QUALITY = 0.8
+
+function resizeImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.src = URL.createObjectURL(file)
+    img.onload = () => {
+      const scale = Math.min(1, MAX_WIDTH / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width * scale
+      canvas.height = img.height * scale
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(img.src)
+      resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY))
+    }
+    img.onerror = reject
+  })
+}
 
 interface Props {
   value: string | null
@@ -10,13 +31,25 @@ interface Props {
 
 export function PhotoUpload({ value, onChange, onOpenCamera }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => onChange(ev.target?.result as string)
-    reader.readAsDataURL(file)
+    setError(null)
+
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`Photo must be under ${MAX_FILE_SIZE_MB} MB.`)
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
+
+    try {
+      const resized = await resizeImage(file)
+      onChange(resized)
+    } catch {
+      setError('Failed to process image. Please try another file.')
+    }
   }
 
   return (
@@ -34,6 +67,7 @@ export function PhotoUpload({ value, onChange, onOpenCamera }: Props) {
           </div>
         )}
       </div>
+      {error && <p className="text-red-500 text-xs mb-2 text-center">{error}</p>}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
       <div className="flex gap-2">
         <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => fileRef.current?.click()}>
